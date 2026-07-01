@@ -3,8 +3,8 @@ import pandas as pd
 import re
 
 # Set up the website text
-st.title("📊 Saginaw MLS Firm Ranking Cleaner")
-st.write("Upload your Paragon Firm Ranking spreadsheet (CSV) to automatically clean the data and generate the Top 15 Firms by Volume.")
+st.title("📊 MLS Firm Ranking Cleaner")
+st.write("Upload your Firm Ranking spreadsheet (CSV) to automatically clean the data and generate the Top 15 Firms by Volume.")
 
 # Create a drag-and-drop file uploader
 uploaded_file = st.file_uploader("Upload your MLS CSV File", type=["csv"])
