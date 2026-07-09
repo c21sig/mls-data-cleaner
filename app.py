@@ -2,96 +2,10 @@ import streamlit as st
 import pandas as pd
 import re
 
-# Set up the website text
-st.title("📊 MLS Firm Ranking Cleaner")
-st.write("Upload your Firm Ranking spreadsheet (CSV) to automatically clean the data and generate the Top 15 Firms by Volume.")
+st.title("📊 MLS Firm Ranking & Market Share Cleaner")
+st.write("Upload your Paragon Firm Ranking spreadsheet (CSV). This tool automatically normalizes major franchises, strips location tags, and merges all multi-office brokerages into clean buckets for true market share!")
 
-# Create a drag-and-drop file uploader
 uploaded_file = st.file_uploader("Upload your MLS CSV File", type=["csv"])
-
-# Define our cleaning rules
-def remove_id(name):
-    if not isinstance(name, str): return name
-    parts = name.rsplit('-', 1)
-    if len(parts) > 1:
-        potential_id = parts[1].strip()
-        if re.match(r'^[A-Za-z0-9]+$', potential_id) and not potential_id.isalpha():
-            return parts[0].strip()
-        if potential_id in ['NGL', 'BCRPAL', 'SRE/MAX', 'SChesrealty']:
-            return parts[0].strip()
-    return name.strip()
-
-def standardize_firm(name):
-    if not isinstance(name, str): return name
-    upper = name.upper()
-    
-    if 'EXP' in upper:
-        if 'HOLLIS' in upper or 'Z REAL ESTATE' in upper: return name
-        return 'EXP Realty'
-    if 'REAL ESTATE ONE' in upper:
-        if 'GREAT LAKES BAY' in upper: return 'Real Estate One Great Lakes Bay'
-        return 'Real Estate One'
-    if 'CHESANING' in upper: return 'Chesaning Realty'
-    if 'BELLABAY' in upper: return 'Bellabay Realty'
-    
-    if 'CENTURY 21' in upper:
-        if 'SIGNATURE' in upper: return 'Century 21 Signature Realty'
-        if 'PROFESSIONALS' in upper: return 'Century 21 Professionals'
-        if 'METRO' in upper: return 'Century 21 Metro Brokers'
-        if 'AFFILIATED' in upper: return 'Century 21 Affiliated'
-        if 'HOWARD' in upper: return 'Century 21 C. Howard'
-        return name
-
-    if 'RE/MAX' in upper or 'REMAX' in upper:
-        if 'NEW IMAGE' in upper: return 'RE/MAX New Image'
-        if 'MIDLAND' in upper: return 'RE/MAX of Midland'
-        if 'RESULTS' in upper: return 'RE/MAX Results'
-        if 'TRI COUNTY' in upper or 'TRICOUNTY' in upper: return 'RE/MAX TriCounty'
-        if 'PLATINUM' in upper: return 'RE/MAX Platinum'
-        if 'SELECT' in upper: return 'RE/MAX Select'
-        if 'PROFESSIONALS' in upper: return 'RE/MAX Real Estate Professionals'
-        if 'DREAM' in upper: return 'RE/MAX Dream Properties'
-        if 'OWOSSO' in upper: return 'RE/MAX of Owosso'
-        if 'HIGGINS LAKE' in upper: return 'RE/MAX of Higgins Lake'
-        if 'CENTRAL' in upper: return 'RE/MAX Central'
-        if 'TOWN & COUNTRY' in upper: return 'RE/MAX Town & Country'
-        if 'RIGHT CHOICE' in upper: return 'RE/MAX Right Choice'
-        if 'PRIME PROPERTIES' in upper: return 'RE/MAX Prime Properties'
-        if 'EDGE' in upper: return 'RE/MAX Edge'
-        return name
-
-    if 'BERKSHIRE' in upper:
-        if 'KEE' in upper: return 'Berkshire Hathaway HomeServices Kee Realty'
-        return 'Berkshire Hathaway HomeServices'
-    if 'FIVE STAR' in upper: return 'Five Star Real Estate'
-        
-    if 'KELLER WILLIAMS' in upper or name.startswith('KW '):
-        if 'PREFERRED' in upper: return 'Keller Williams Preferred'
-        if 'FIRST' in upper: return 'Keller Williams First'
-        if 'GREAT LAKES' in upper: return 'Keller Williams Realty Great Lakes'
-        if 'PROFESSIONALS' in upper: return 'Keller Williams Professionals'
-        if 'SIGNATURE' in upper: return 'Keller Williams of NM Signature Group'
-        if 'NORTHERN MICHIGAN' in upper: return 'Keller Williams Northern Michigan'
-        if 'LEGACY' in upper: return 'Keller Williams Legacy'
-        if 'LANSING' in upper: return 'Keller Williams Lansing'
-        if upper.startswith('KW PROFESSIONALS'): return 'KW Professionals'
-        if upper.startswith('KW METRO'): return 'KW Metro'
-        if upper.startswith('KW SHOWCASE'): return 'KW Showcase Realty'
-        if upper.startswith('KW PLATINUM'): return 'KW Platinum'
-        return name
-        
-    if 'REAL BROKER' in upper: return 'Real Broker LLC'
-    if 'NEXTHOME' in upper:
-        if 'GREATER TRI-CITIES' in upper: return 'NextHome Greater Tri-cities'
-        if 'PARK PLACE' in upper: return 'NextHome Park Place'
-        if 'LEGACY' in upper: return 'NextHome Legacy Real Estate'
-
-    name = re.sub(r', LLC| LLC', '', name, flags=re.IGNORECASE)
-    name = re.sub(r', Inc| Inc.', '', name, flags=re.IGNORECASE)
-    parts = name.split(' - ')
-    if len(parts) > 1: return parts[0].strip()
-        
-    return name.strip()
 
 def clean_money(val):
     if not isinstance(val, str): return val
@@ -101,35 +15,133 @@ def clean_money(val):
     except:
         return 0.0
 
-# When a file is uploaded, process it!
+# Define master list of franchises to catch messy spelling variations
+franchise_map = {
+    'RE/MAX': ['RE/MAX', 'REMAX', 'RE MAX', 'R/E MAX'],
+    'CENTURY 21': ['CENTURY 21', 'CENTURY21', 'C21'],
+    'KELLER WILLIAMS': ['KELLER WILLIAMS', 'KW ', 'KW-'],
+    'BERKSHIRE HATHAWAY': ['BERKSHIRE HATHAWAY', 'BHHS'],
+    'COLDWELL BANKER': ['COLDWELL BANKER', 'CB '],
+    'REAL ESTATE ONE': ['REAL ESTATE ONE', 'REO '],
+    'NEXTHOME': ['NEXTHOME', 'NEXT HOME'],
+    'FIVE STAR': ['FIVE STAR']
+}
+
+def basic_clean(name):
+    if not isinstance(name, str): return name
+    
+    # 1. Strip MLS IDs at the end (e.g. "- MR4127" or "- NGL")
+    parts = name.rsplit('-', 1)
+    if len(parts) > 1:
+        potential_id = parts[1].strip()
+        # If it's mostly alphanumeric without spaces, or a known ID string, remove it
+        if re.match(r'^[A-Za-z0-9]+$', potential_id) or potential_id.upper() in ['NGL', 'BCRPAL', 'SRE/MAX', 'SCHESREALTY']:
+            name = parts[0].strip()
+            
+    # 2. Remove Corporate Suffixes
+    name = re.sub(r',? LLC\.?|,? INC\.?|,? LTD\.?', '', name, flags=re.IGNORECASE).strip()
+    
+    # 3. Handle explicit hyphenated location tags (e.g., "Knockout Real Estate - Fenton")
+    if ' - ' in name:
+        name = name.split(' - ')[0].strip()
+        
+    return name
+
+def get_bucket_key(clean_name):
+    upper_name = clean_name.upper()
+    
+    # --- EXCEPTIONS ---
+    # EXP Teams (Keep specific teams separate)
+    if 'EXP' in upper_name:
+        if 'HOLLIS' in upper_name or 'Z REAL' in upper_name: return upper_name
+        return 'EXP REALTY'
+
+    # --- 1. MAJOR FRANCHISE LOGIC ---
+    for std_franchise, variants in franchise_map.items():
+        for variant in variants:
+            if variant in upper_name or upper_name.startswith(variant):
+                parts = upper_name.split(variant, 1)
+                if len(parts) > 1:
+                    dba_part = parts[1].strip()
+                    # Strip common junk words like 'OF' (e.g. "RE/MAX of Midland" -> "Midland")
+                    dba_part = re.sub(r'^OF\s+', '', dba_part).strip()
+                    
+                    if dba_part:
+                        # Grab the core DBA word (e.g. "PLATINUM" or "EDGE")
+                        first_dba_word = dba_part.split()[0]
+                        # Remove punctuation from the DBA word (like commas or hyphens)
+                        first_dba_word = re.sub(r'[^\w\s]', '', first_dba_word)
+                        return f"{std_franchise} {first_dba_word}"
+                        
+                return std_franchise
+
+    # --- 2. INDEPENDENT MULTI-OFFICE LOGIC ---
+    # Strip common geographic/branch words from the end of independent firm names
+    # e.g., "Redwood Realty North", "Redwood Realty Main", "Redwood Realty Bay City"
+    words_to_strip = [
+        'NORTH', 'SOUTH', 'EAST', 'WEST', 'MAIN', 'BRANCH', 'OFFICE', 'REGION', 'GROUP', 'TEAM', 'BAY CITY', 'FENTON', 'FLINT', 'MIDLAND', 'SAGINAW', 'LANSING', 'GRAND RAPIDS'
+    ]
+    
+    bucket_name = upper_name
+    for word in words_to_strip:
+        # Regex looks for the target word at the very end of the firm name
+        pattern = r'\b' + word + r'$'
+        bucket_name = re.sub(pattern, '', bucket_name).strip()
+        
+    # Strip trailing punctuation just in case (e.g. "Redwood Realty,")
+    bucket_name = re.sub(r'[^\w\s]$', '', bucket_name).strip()
+
+    return bucket_name
+
+# --- MAIN APP LOGIC ---
 if uploaded_file is not None:
     try:
         # Read the file
         df = pd.read_csv(uploaded_file, skiprows=3, names=['Rank', 'Firm', 'Units', 'Volume', 'Average', 'Median', '% Volume'])
         
-        # Clean the data
-        df['Clean_Firm'] = df['Firm'].apply(remove_id)
-        df['Final_Firm'] = df['Clean_Firm'].apply(standardize_firm)
-        
-        # Remove Totals row
-        df = df[df['Final_Firm'] != 'Totals'].copy()
-        df = df[df['Final_Firm'] != 'Total'].copy()
-        
-        # Convert to numbers
+        # Convert numeric columns
         df['Volume_Num'] = df['Volume'].apply(clean_money)
         df['Units_Num'] = pd.to_numeric(df['Units'], errors='coerce').fillna(0)
         
-        # Group and do math
+        # Exclude 'Totals' rows
+        df = df[~df['Firm'].astype(str).str.upper().str.contains('TOTAL', na=False)].copy()
+        
+        # Clean names and assign Buckets
+        df['Clean_Name'] = df['Firm'].apply(basic_clean)
+        df['Bucket_Key'] = df['Clean_Name'].apply(get_bucket_key)
+        
+        # Determine Display Names
+        display_names = {}
+        for key, group in df.groupby('Bucket_Key'):
+            if key == 'EXP REALTY':
+                display_names[key] = 'EXP Realty'
+                continue
+                
+            # Pick the shortest original name in the bucket for formatting
+            shortest_name = group['Clean_Name'].loc[group['Clean_Name'].str.len().idxmin()]
+            formatted_name = shortest_name.title()
+            
+            # Format the known franchises strictly
+            formatted_name = formatted_name.replace('Re/Max', 'RE/MAX').replace('Remax', 'RE/MAX').replace('Re Max', 'RE/MAX')
+            formatted_name = formatted_name.replace('Kw ', 'Keller Williams ')
+            formatted_name = formatted_name.replace('Llc', '').replace('Inc', '').strip()
+            
+            display_names[key] = formatted_name
+            
+        # Apply final names
+        df['Final_Firm'] = df['Bucket_Key'].map(display_names)
+        
+        # Recalculate Totals
         total_volume = df['Volume_Num'].sum()
         grouped = df.groupby('Final_Firm').agg({'Units_Num': 'sum', 'Volume_Num': 'sum'}).reset_index()
         grouped['Average'] = grouped['Volume_Num'] / grouped['Units_Num']
         grouped['% Volume'] = (grouped['Volume_Num'] / total_volume) * 100
         
-        # Get Top 15
+        # Build Top 15
         top_15 = grouped.sort_values(by='Volume_Num', ascending=False).head(15).copy()
         top_15.insert(0, 'Rank', range(1, 16))
         
-        # Format cleanly for display
+        # Formatting for UI
         display_df = top_15.copy()
         display_df['Volume'] = display_df['Volume_Num'].apply(lambda x: f"${x:,.0f}")
         display_df['Average'] = display_df['Average'].apply(lambda x: f"${x:,.0f}")
@@ -138,12 +150,10 @@ if uploaded_file is not None:
         display_df = display_df[['Rank', 'Final_Firm', 'Units', 'Volume', 'Average', 'Market Share']]
         display_df.rename(columns={'Final_Firm': 'Firm Name'}, inplace=True)
         
-        st.success("Data successfully cleaned and processed!")
-        
-        # Show the table on the website
+        st.success("Data successfully cleaned and all multi-office brokerages grouped!")
         st.dataframe(display_df, use_container_width=True, hide_index=True)
         
-        # Create a download button for the user
+        # Download
         csv = display_df.to_csv(index=False).encode('utf-8')
         st.download_button(
             label="⬇️ Download Top 15 CSV",
