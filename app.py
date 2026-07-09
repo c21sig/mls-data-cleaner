@@ -125,7 +125,7 @@ if uploaded_file is not None:
         for (i, j), cell in table.get_celld().items():
             if i == 0:
                 cell.set_text_props(weight='bold', color='white')
-                cell.set_facecolor('#1f77b4') # Blue header
+                cell.set_facecolor('#333333') # Dark Grey header
             elif i % 2 == 0:
                 cell.set_facecolor('#f0f2f6') # Light grey for alternating rows
                 
