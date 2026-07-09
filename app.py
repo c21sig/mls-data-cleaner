@@ -5,9 +5,10 @@ import matplotlib.pyplot as plt
 import io
 
 st.title("📊 MLS Firm Ranking & Market Share Cleaner")
-st.write("Upload your Paragon Firm Ranking spreadsheet (CSV). This tool automatically normalizes major franchises, strips location tags, and merges all multi-office brokerages into clean buckets for true market share!")
+st.write("Upload one or MORE Paragon Firm Ranking spreadsheets (CSV). This tool stitches them together, normalizes major franchises, strips location tags, and merges all multi-office brokerages into clean buckets for true market share!")
 
-uploaded_file = st.file_uploader("Upload your MLS CSV File", type=["csv"])
+# --- MULTIPLE FILE UPLOADER ADDED HERE ---
+uploaded_files = st.file_uploader("Upload your MLS CSV Files", type=["csv"], accept_multiple_files=True)
 
 def clean_money(val):
     if not isinstance(val, str): return val
@@ -67,9 +68,19 @@ def get_bucket_key(clean_name):
     bucket_name = re.sub(r'[^\w\s]$', '', bucket_name).strip()
     return bucket_name
 
-if uploaded_file is not None:
+# --- PROCESSING LOOP UPDATED FOR MULTIPLE FILES ---
+if uploaded_files: # Checks if the list of files is not empty
     try:
-        df = pd.read_csv(uploaded_file, skiprows=3, names=['Rank', 'Firm', 'Units', 'Volume', 'Average', 'Median', '% Volume'])
+        all_dataframes = []
+        
+        # Read each uploaded file and add it to our list
+        for file in uploaded_files:
+            temp_df = pd.read_csv(file, skiprows=3, names=['Rank', 'Firm', 'Units', 'Volume', 'Average', 'Median', '% Volume'])
+            all_dataframes.append(temp_df)
+            
+        # Stitch them all together into one giant spreadsheet!
+        df = pd.concat(all_dataframes, ignore_index=True)
+
         df['Volume_Num'] = df['Volume'].apply(clean_money)
         df['Units_Num'] = pd.to_numeric(df['Units'], errors='coerce').fillna(0)
         df = df[~df['Firm'].astype(str).str.upper().str.contains('TOTAL', na=False)].copy()
@@ -107,34 +118,43 @@ if uploaded_file is not None:
         display_df = display_df[['Rank', 'Final_Firm', 'Units', 'Volume', 'Average', 'Market Share']]
         display_df.rename(columns={'Final_Firm': 'Firm Name'}, inplace=True)
         
-        st.success("Data successfully cleaned and grouped!")
+        st.success(f"Successfully processed and merged {len(uploaded_files)} file(s)!")
         st.dataframe(display_df, use_container_width=True, hide_index=True)
         
         # --- GENERATE PNG IMAGE OF TABLE ---
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(12, 6))
         ax.axis('tight')
         ax.axis('off')
         
-        # Draw the table
-        table = ax.table(cellText=display_df.values, colLabels=display_df.columns, loc='center', cellLoc='center')
+        custom_widths = [0.06, 0.44, 0.08, 0.14, 0.14, 0.14]
+        
+        table = ax.table(
+            cellText=display_df.values, 
+            colLabels=display_df.columns, 
+            loc='center', 
+            cellLoc='center',
+            colWidths=custom_widths
+        )
         table.auto_set_font_size(False)
         table.set_fontsize(11)
-        table.scale(1.2, 1.5)
+        table.scale(1, 1.8)
         
-        # Add alternating row colors and a nice header
-        for (i, j), cell in table.get_celld().items():
-            if i == 0:
+        for (row, col), cell in table.get_celld().items():
+            if row == 0:
                 cell.set_text_props(weight='bold', color='white')
-                cell.set_facecolor('#333333') # Dark Grey header
-            elif i % 2 == 0:
-                cell.set_facecolor('#f0f2f6') # Light grey for alternating rows
+                cell.set_facecolor('#1f77b4') 
+            else:
+                if row % 2 == 0:
+                    cell.set_facecolor('#f0f2f6') 
+                if col == 1:
+                    cell.get_text().set_text(' ' + cell.get_text().get_text())
+                    cell.set_text_props(ha='left')
                 
-        # Save table to a temporary image buffer
         img_buffer = io.BytesIO()
         plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=300)
         img_buffer.seek(0)
         
-        # --- DISPLAY DOWNLOAD BUTTONS SIDE-BY-SIDE ---
+        # --- DISPLAY DOWNLOAD BUTTONS ---
         col1, col2 = st.columns(2)
         
         with col1:
@@ -155,4 +175,4 @@ if uploaded_file is not None:
             )
         
     except Exception as e:
-        st.error(f"Whoops! There was an error reading the file. Make sure it's the exact format from Paragon. (Error: {e})")
+        st.error(f"Whoops! There was an error reading the file(s). Make sure they are the exact format from Paragon. (Error: {e})")
